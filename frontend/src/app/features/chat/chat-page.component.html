@@ -1,0 +1,179 @@
+<div class="chat-layout">
+  <!-- Sidebar: search + chat list -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h3>{{ 'chat.messages' | t }}</h3>
+    </div>
+
+    <mat-form-field appearance="outline" class="search" subscriptSizing="dynamic">
+      <mat-label>{{ 'chat.findPeople' | t }}</mat-label>
+      <input
+        matInput
+        [ngModel]="searchTerm()"
+        (ngModelChange)="searchTerm.set($event); searchUsers()"
+        [placeholder]="'chat.searchUsername' | t"
+      />
+      <mat-icon matSuffix>search</mat-icon>
+    </mat-form-field>
+
+    @if (searchResults().length) {
+      <div class="results">
+        @for (user of searchResults(); track user.id) {
+          <button class="result-row" (click)="startChat(user)">
+            <app-avatar [name]="user.username" [size]="34" [bot]="user.username === 'ai-assistant'" />
+            <span class="result-name">{{ user.username }}</span>
+            <mat-icon class="add">person_add</mat-icon>
+          </button>
+        }
+      </div>
+    }
+
+    <div class="chat-list">
+      @for (chat of chats(); track chat.id) {
+        <button
+          class="chat-row"
+          (click)="selectChat(chat.id)"
+          [class.active]="chat.id === activeChatId()"
+        >
+          <app-avatar
+            [name]="chatTitle(chat)"
+            [size]="44"
+            [bot]="isBotChat(chat)"
+            [showStatus]="chat.type === 'direct'"
+            [online]="isOnline(peerId(chat))"
+          />
+          <span class="chat-meta">
+            <span class="chat-name">{{ chatTitle(chat) }}</span>
+            <span class="chat-sub">
+              {{ (chat.type === 'group' ? 'chat.groupChat' : (isBotChat(chat) ? 'chat.aiAssistant' : 'dash.directMessage')) | t }}
+            </span>
+          </span>
+        </button>
+      } @empty {
+        <p class="muted">{{ 'chat.noChats' | t }}</p>
+      }
+    </div>
+  </aside>
+
+  <!-- Conversation pane -->
+  <section class="conversation">
+    @if (activeChat(); as chat) {
+      <header class="conv-head">
+        <app-avatar
+          [name]="chatTitle(chat)"
+          [size]="40"
+          [bot]="isBotChat(chat)"
+          [showStatus]="chat.type === 'direct'"
+          [online]="isOnline(peerId(chat))"
+        />
+        <div class="conv-title">
+          <span class="conv-name">{{ chatTitle(chat) }}</span>
+          <span class="conv-status">
+            @if (typingUsers().size > 0) {
+              <em>{{ 'chat.typing' | t }}</em>
+            } @else if (isBotChat(chat)) {
+              {{ 'chat.alwaysAvailable' | t }}
+            } @else if (isOnline(peerId(chat))) {
+              <span class="online-dot"></span> {{ 'chat.online' | t }}
+            } @else {
+              {{ 'chat.offline' | t }}
+            }
+          </span>
+        </div>
+        <span class="spacer"></span>
+        <button class="ai-btn" (click)="summarizeChat()" [disabled]="summaryLoading()">
+          <mat-icon>auto_awesome</mat-icon>
+          <span>{{ (summaryLoading() ? 'ai.thinking' : 'ai.summarize') | t }}</span>
+        </button>
+      </header>
+
+      @if (summary() || summaryLoading()) {
+        <div class="summary-banner">
+          <mat-icon class="sparkle">auto_awesome</mat-icon>
+          <div class="summary-body">
+            <strong>{{ 'ai.summary' | t }}</strong>
+            @if (summaryLoading()) {
+              <span class="dots"><i></i><i></i><i></i></span>
+            } @else {
+              <p>{{ summary() }}</p>
+            }
+          </div>
+          <button class="summary-close" (click)="dismissSummary()" aria-label="Close">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      }
+
+      <div class="messages">
+        @for (msg of messages(); track msg.id) {
+          <div class="bubble-row" [class.mine]="msg.sender_id === meId()">
+            @if (msg.sender_id !== meId()) {
+              <app-avatar [name]="senderName(msg)" [size]="30" [bot]="senderName(msg) === 'ai-assistant'" />
+            }
+            <div class="bubble">
+              @if (msg.sender_id !== meId() && chat.type === 'group') {
+                <span class="sender">{{ senderName(msg) }}</span>
+              }
+              <span class="body">{{ msg.body }}</span>
+              <span class="meta">
+                {{ msg.created_at | date: 'shortTime' }}
+                @if (msg.is_edited) {
+                  <em>· {{ 'chat.edited' | t }}</em>
+                }
+                @if (msg.sender_id === meId()) {
+                  <mat-icon class="tick">done_all</mat-icon>
+                  <button class="del" (click)="deleteMessage(msg.id)" aria-label="Delete">
+                    <mat-icon>delete</mat-icon>
+                  </button>
+                }
+              </span>
+            </div>
+          </div>
+        }
+
+        @if (typingUsers().size > 0) {
+          <div class="bubble-row">
+            <app-avatar [name]="chatTitle(chat)" [size]="30" [bot]="isBotChat(chat)" />
+            <div class="bubble typing-bubble">
+              <span class="dots"><i></i><i></i><i></i></span>
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="smart-replies">
+        @if (suggestions().length) {
+          @for (s of suggestions(); track s) {
+            <button class="chip" (click)="useSuggestion(s)">{{ s }}</button>
+          }
+        } @else {
+          <button class="chip ghost" (click)="loadSuggestions()" [disabled]="suggestionsLoading()">
+            <mat-icon>tips_and_updates</mat-icon>
+            {{ (suggestionsLoading() ? 'ai.thinking' : 'ai.smartReplies') | t }}
+          </button>
+        }
+      </div>
+
+      <form class="composer" (ngSubmit)="send()">
+        <mat-form-field appearance="outline" class="composer-field" subscriptSizing="dynamic">
+          <input
+            matInput
+            [placeholder]="'chat.typeMessage' | t"
+            [ngModel]="draft()"
+            (ngModelChange)="draft.set($event); onInput()"
+            name="draft"
+          />
+        </mat-form-field>
+        <button mat-fab color="primary" type="submit" aria-label="Send" class="send-btn">
+          <mat-icon>send</mat-icon>
+        </button>
+      </form>
+    } @else {
+      <div class="empty">
+        <div class="empty-badge"><mat-icon>forum</mat-icon></div>
+        <h2>{{ 'chat.yourConversations' | t }}</h2>
+        <p>{{ 'chat.emptyHint' | t }}</p>
+      </div>
+    }
+  </section>
+</div>
